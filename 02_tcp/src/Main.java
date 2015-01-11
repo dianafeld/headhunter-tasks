@@ -3,7 +3,6 @@ import java.io.IOException;
 public class Main {
 
     private static int DEFAULT_PORT = 54324;
-    private static int MAX_CONNECTIONS = 10;
 
     private static String usage() {
         return "Arguments: [port]";
@@ -22,7 +21,7 @@ public class Main {
 
         NetworkService server = null;
         try {
-            server = new NetworkService(port, MAX_CONNECTIONS);
+            server = new NetworkService(port);
         } catch (IOException e) {
             e.printStackTrace();
             System.exit(1);

@@ -1,5 +1,7 @@
 import java.io.*;
+import java.nio.file.*;
 import java.util.*;
+import java.nio.channels.FileChannel;
 
 public class Main {
 
@@ -19,16 +21,16 @@ public class Main {
             System.exit(1);
         }
 
-        File logFile = new File(args[0]);
+        Path logFile = Paths.get(args[0]);
 
-        if (!logFile.exists()) {
+        if (!Files.exists(logFile)) {
             System.out.println("File not found");
             System.exit(1);
         }
 
-        HashMap<Integer, Long> totalTimeSpentByUser = null;
-
-        try (BufferedReader logReader = new BufferedReader(new FileReader(logFile))) {
+        Map<Integer, Long> totalTimeSpentByUser = null;
+        
+        try (FileChannelReader logReader = new FileChannelReader(FileChannel.open(logFile, StandardOpenOption.READ))) {
             LogHandler logHandler = new LogHandler(logReader);
             totalTimeSpentByUser = logHandler.getUsersTotalTimeSpent();
 
@@ -40,8 +42,8 @@ public class Main {
             System.exit(1);
         }
 
-        ArrayList<Map.Entry<Integer, Long>> usersTime =
-                new ArrayList<Map.Entry<Integer, Long>>(totalTimeSpentByUser.entrySet());
+        List<Map.Entry<Integer, Long>> usersTime =
+                new ArrayList<>(totalTimeSpentByUser.entrySet());
         usersTime.sort(new Comparator<Map.Entry<Integer, Long>>() {
             @Override
             public int compare(Map.Entry<Integer, Long> o1, Map.Entry<Integer, Long> o2) {
@@ -51,7 +53,9 @@ public class Main {
 
         System.out.println("UserID\tTotal time spent");
         for (Map.Entry<Integer, Long> entry : usersTime) {
-            System.out.println(entry.getKey() + "\t\t" + toReadableTime(entry.getValue()));
+            System.out.print(entry.getKey());
+            System.out.print("\t\t");
+            System.out.println(toReadableTime(entry.getValue()));
         }
     }
 }

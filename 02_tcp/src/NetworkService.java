@@ -1,98 +1,132 @@
 import java.io.*;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 
-// Example from http://docs.oracle.com/javase/8/docs/api/java/util/concurrent/ExecutorService.html
 // nc localhost 54324
 public class NetworkService implements Runnable {
+    
+    private final static int READ_BUFFER_CAPACITY = 1024;
 
-    private final ServerSocket serverSocket;
-    private final ExecutorService pool;
+    private final ServerSocketChannel serverChannel;
+    private final Selector selector;
+    
+    private final Sender sender;
+    private final Thread senderThread;
+    
+    private final ByteBuffer readBuffer;
+    private final Set<SocketChannel> clientChannels;
 
-    private final Socket[] clientSockets;
+    public NetworkService(int port) throws IOException {
 
-    public NetworkService(int port, int poolSize)
-            throws IOException {
-        serverSocket = new ServerSocket(port);
-        pool = Executors.newFixedThreadPool(poolSize);
-        clientSockets = new Socket[poolSize];
+        selector = Selector.open();
+        
+        serverChannel = ServerSocketChannel.open();
+        InetSocketAddress address = new InetSocketAddress("localhost", port);
+        serverChannel.socket().bind(address);
+        serverChannel.configureBlocking(false);
+
+        serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+        
+        readBuffer = ByteBuffer.allocate(READ_BUFFER_CAPACITY);
+
+        clientChannels = Collections.newSetFromMap(new ConcurrentHashMap<SocketChannel, Boolean>());
+
+        sender = new Sender(clientChannels);
+        
+        senderThread = new Thread(sender);
+        senderThread.start();
     }
-
-    private int getFirstAvailable() {
-        for (int i = 0; i < clientSockets.length; ++i) {
-            if (clientSockets[i] == null || clientSockets[i].isClosed()) {
-                return i;
-            }
+    
+    
+    private void processKey(SelectionKey key) throws IOException {
+        if (!key.isValid()) {
+            return;
+        } else if (key.isAcceptable()) {
+            accept(key);
+        } else if (key.isReadable()) {
+            read(key);
         }
-        throw new RuntimeException("No available sockets (couldn't be thrown)");
     }
-
-    private void sendAll(String text, Socket sender) throws IOException {
-
-        BufferedWriter bw;
-        for (int i = 0; i < clientSockets.length; ++i) {
-            if (clientSockets[i] != null &&
-                    clientSockets[i].isConnected() && !clientSockets[i].equals(sender)) {
-
-                bw = new BufferedWriter(
-                        new OutputStreamWriter(clientSockets[i].getOutputStream()));
-
-                bw.write(text + '\n');
-                bw.flush();
-
-            }
+    
+    
+    private void processSelectedKeys() throws IOException {
+        Iterator iter = selector.selectedKeys().iterator();
+        while (iter.hasNext()) {
+            SelectionKey key = (SelectionKey) iter.next();
+            iter.remove();
+            processKey(key);
         }
     }
+    
+    
+    private void accept(SelectionKey key) throws IOException {
+        ServerSocketChannel serverChannel = (ServerSocketChannel) key.channel();
+        
+        SocketChannel clientChannel = serverChannel.accept();
+        clientChannel.configureBlocking(false);
+        
+        System.out.println("Client connected!");
 
-    @Override
-    public void run() { // run the service
+        clientChannel.register(selector, SelectionKey.OP_READ);
+        clientChannels.add(clientChannel);
+    }
+    
+    private void read(SelectionKey key) throws IOException {
+        SocketChannel clientChannel = (SocketChannel) key.channel();
+
+        readBuffer.clear();
+
+        int readSize;
         try {
-            Socket clientSocket;
+            readSize = clientChannel.read(readBuffer);
+        } catch (IOException e) {
+            System.out.println("The connection was broken on the other side: ");
+            System.out.println(e.getMessage());
+            key.cancel();
+            clientChannel.close();
+            return;
+        }
+
+        if (readSize == -1) {
+            System.out.println("Client disconnected");
+            key.channel().close();
+            key.cancel();
+            return;
+        } else {
+            readBuffer.flip();
+            sender.sendAll(ByteBufferUtils.clone(readBuffer), clientChannel);
+        }
+
+    }
+    
+    @Override
+    public void run() {
+        try {
+            
             while (true) {
-                clientSocket = serverSocket.accept();
-                clientSockets[getFirstAvailable()] = clientSocket;
-                pool.execute(new Handler(clientSocket));
+                selector.select();
+                processSelectedKeys();
             }
 
         } catch (Exception e) {
             System.out.println("Error: " + e.getMessage());
-            System.out.println("Shutting down...");
-            pool.shutdown();
         } finally {
+            System.out.println("Shutting down...");
             try {
-                serverSocket.close();
+                serverChannel.close();
+                selector.close();
+                senderThread.interrupt();
             } catch (IOException e) {}
         }
     }
-
-    private class Handler implements Runnable {
-        private final Socket clientSocket;
-
-        Handler(Socket clientSocket) {
-            this.clientSocket = clientSocket;
-        }
-
-        @Override
-        public void run() {
-            System.out.println("Connected");
-
-            try (final BufferedReader br = new BufferedReader(
-                    new InputStreamReader(clientSocket.getInputStream()))) {
-
-                String line;
-                while (clientSocket.isConnected() &&  (line = br.readLine()) != null) {
-                    sendAll(line, clientSocket);
-                }
-
-            } catch (IOException e) {
-                System.out.println("Error: " + e.getMessage());
-            }
-
-        }
-    }
-
 }
 

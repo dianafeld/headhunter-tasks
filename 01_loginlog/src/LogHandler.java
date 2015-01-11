@@ -1,16 +1,15 @@
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.*;
 
 public class LogHandler {
 
-    private BufferedReader logReader;
+    private final FileChannelReader logReader;
 
-    public LogHandler(BufferedReader logReader) {
+    public LogHandler(FileChannelReader logReader) {
         this.logReader = logReader;
     }
 
-    private void handleEvent(HashMap<Integer, Long> totalTimeSpentByUser, long unixTime, int userID, String event) {
+    private void handleEvent(Map<Integer, Long> totalTimeSpentByUser, long unixTime, int userID, String event) {
         if (event.equals("login")) {
             totalTimeSpentByUser.compute(userID,
                     (key, value) -> value == null ? -unixTime : value - unixTime);
@@ -19,9 +18,10 @@ public class LogHandler {
                     (key, value) -> value == null ? unixTime : value + unixTime);
         }
     }
-
-    public HashMap getUsersTotalTimeSpent() throws IOException {
-        HashMap<Integer, Long> totalTimeSpentByUser = new HashMap<Integer, Long>();
+    
+    
+    public Map getUsersTotalTimeSpent() throws IOException {
+        Map<Integer, Long> totalTimeSpentByUser = new HashMap<>();
 
         String line;
         String[] tokens;
@@ -39,5 +39,5 @@ public class LogHandler {
         }
 
         return totalTimeSpentByUser;
-    }
+    }    
 }
